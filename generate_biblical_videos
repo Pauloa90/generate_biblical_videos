@@ -1,0 +1,441 @@
+#!/usr/bin/env python3
+"""
+Biblical Videos Generator using Piapi Kling API
+Generates 5 biblical scenes with consistent characters
+"""
+
+import os
+import json
+import time
+import requests
+from typing import Dict, List, Optional, Tuple
+from datetime import datetime
+import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from urllib.parse import urljoin
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# API Configuration
+API_BASE_URL = "https://api.piapi.ai/api/v1"
+API_KEY = os.environ.get("PIAPI_API_KEY")
+
+# GitHub Repository Images Base URL (if using GitHub)
+# Replace with your actual GitHub raw content URL
+GITHUB_IMAGES_BASE = "https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_REPO/main/images/"
+
+# Google Drive direct link template (if using Google Drive)
+# Replace FILE_ID with actual IDs from your Google Drive
+GDRIVE_TEMPLATE = "https://drive.google.com/uc?export=download&id={file_id}"
+
+# Image configuration
+# Option 1: Using GitHub (recommended)
+IMAGES = {
+    "David": f"{GITHUB_IMAGES_BASE}David.png",
+    "Saul": f"{GITHUB_IMAGES_BASE}Saul.png",
+    "Golias": f"{GITHUB_IMAGES_BASE}Golias.png",
+    "bg1": f"{GITHUB_IMAGES_BASE}bg1.png",
+    "bg2": f"{GITHUB_IMAGES_BASE}bg2.png",
+    "bg3": f"{GITHUB_IMAGES_BASE}bg3.png",
+    "bg4": f"{GITHUB_IMAGES_BASE}bg4.png",
+    "bg5": f"{GITHUB_IMAGES_BASE}bg5.png",
+}
+
+# Option 2: Using Google Drive (uncomment and add your file IDs)
+# IMAGES = {
+#     "David": GDRIVE_TEMPLATE.format(file_id="YOUR_DAVID_FILE_ID"),
+#     "Saul": GDRIVE_TEMPLATE.format(file_id="YOUR_SAUL_FILE_ID"),
+#     "Golias": GDRIVE_TEMPLATE.format(file_id="YOUR_GOLIAS_FILE_ID"),
+#     "bg1": GDRIVE_TEMPLATE.format(file_id="YOUR_BG1_FILE_ID"),
+#     "bg2": GDRIVE_TEMPLATE.format(file_id="YOUR_BG2_FILE_ID"),
+#     "bg3": GDRIVE_TEMPLATE.format(file_id="YOUR_BG3_FILE_ID"),
+#     "bg4": GDRIVE_TEMPLATE.format(file_id="YOUR_BG4_FILE_ID"),
+#     "bg5": GDRIVE_TEMPLATE.format(file_id="YOUR_BG5_FILE_ID"),
+# }
+
+# Scene definitions
+SCENES = [
+    {
+        "id": 1,
+        "name": "David with the sheep",
+        "prompt": "David, a young shepherd boy with curly dark hair, wears a beige biblical tunic and leather sandals. He stands on a small hill, holding a wooden staff, peacefully watching his flock. His face shows calm and faith. The wind moves David's hair and tunic gently. Pixar-style 3D animation. The sheep graze behind him. The light is warm and golden.",
+        "camera_movement": {
+            "type": "simple",
+            "config": {
+                "horizontal": -15,  # Gentle arc movement
+                "vertical": 5,
+                "pan": 0,
+                "tilt": 0,
+                "roll": 0,
+                "zoom": 10  # Slow push in
+            }
+        },
+        "elements": ["David"],  # Characters to use
+        "background": "bg1"
+    },
+    {
+        "id": 2,
+        "name": "Saul worried",
+        "prompt": "Saul, a middle-aged king with a short black beard and tired eyes, wears a red robe and golden crown. He sits on a carved stone throne, leaning forward with his hands clasped in thought. The tent around him is dimly lit by flickering torches. Pixar-style 3D animation. His face shows worry and uncertainty.",
+        "camera_movement": {
+            "type": "simple",
+            "config": {
+                "horizontal": 0,
+                "vertical": -10,  # Rise up
+                "pan": 0,
+                "tilt": 5,
+                "roll": 0,
+                "zoom": -15  # Zoom out
+            }
+        },
+        "elements": ["Saul"],
+        "background": "bg2"
+    },
+    {
+        "id": 3,
+        "name": "David arrives at the camp",
+        "prompt": "David, the young shepherd boy, runs over rocky terrain toward a distant camp. His tunic flaps in the wind. He breathes heavily but looks determined. His staff bounces on his back and dust rises around his sandals. Pixar-style 3D animation. Soldiers and tents appear blurred in the distance.",
+        "camera_movement": {
+            "type": "simple",
+            "config": {
+                "horizontal": 20,  # Side tracking
+                "vertical": 0,
+                "pan": -5,
+                "tilt": 0,
+                "roll": 0,
+                "zoom": 0
+            }
+        },
+        "elements": ["David"],
+        "background": "bg3"
+    },
+    {
+        "id": 4,
+        "name": "Goliath challenges the army",
+        "prompt": "Goliath, a giant with bronze armor, a heavy helmet, and a large spear, stands roaring on a hill. His mouth is open in mid-shout. The background shows a cloudy sky and the vast valley. Pixar-style 3D animation. David is not present in this scene. Dust rises around Goliath's feet.",
+        "camera_movement": {
+            "type": "simple",
+            "config": {
+                "horizontal": 10,  # Slow pan
+                "vertical": 5,
+                "pan": 0,
+                "tilt": -5,  # Low angle
+                "roll": 0,
+                "zoom": 5
+            }
+        },
+        "elements": ["Golias"],
+        "background": "bg4"
+    },
+    {
+        "id": 5,
+        "name": "David volunteers",
+        "prompt": "David, the young shepherd boy, steps forward from among a group of surprised soldiers. He raises his hand and looks up with confidence. His face shows courage and calm faith. The soldiers around him look shocked. Pixar-style 3D animation. Dust floats in the air.",
+        "camera_movement": {
+            "type": "simple",
+            "config": {
+                "horizontal": -10,  # Arc to reveal soldiers
+                "vertical": 0,
+                "pan": 0,
+                "tilt": 0,
+                "roll": 0,
+                "zoom": 15  # End with close-up
+            }
+        },
+        "elements": ["David"],
+        "background": "bg5"
+    }
+]
+
+class KlingVideoGenerator:
+    def __init__(self, api_key: str):
+        self.api_key = api_key
+        self.headers = {
+            "x-api-key": api_key,
+            "Content-Type": "application/json"
+        }
+        self.session = requests.Session()
+        self.session.headers.update(self.headers)
+        
+    def create_video_task(self, scene: Dict) -> Optional[str]:
+        """Create a video generation task for a scene"""
+        try:
+            # Prepare elements (character images + background)
+            elements = []
+            
+            # Add character images
+            for character in scene["elements"]:
+                if character in IMAGES:
+                    elements.append({
+                        "image_url": IMAGES[character]
+                    })
+            
+            # Add background image
+            if scene["background"] in IMAGES:
+                elements.append({
+                    "image_url": IMAGES[scene["background"]]
+                })
+            
+            # Prepare request payload
+            payload = {
+                "model": "kling",
+                "task_type": "video_generation",
+                "input": {
+                    "prompt": scene["prompt"],
+                    "negative_prompt": "",
+                    "duration": 5,  # 5 seconds
+                    "elements": elements,  # Multiple images
+                    "mode": "pro",  # Professional mode
+                    "aspect_ratio": "16:9",  # YouTube format
+                    "version": "1.6",  # Kling 1.6
+                    "camera_control": scene["camera_movement"],
+                    "cfg_scale": 0.5
+                },
+                "config": {
+                    "service_mode": "public",
+                    "webhook_config": {
+                        "endpoint": "",
+                        "secret": ""
+                    }
+                }
+            }
+            
+            logger.info(f"Creating video task for scene {scene['id']}: {scene['name']}")
+            logger.debug(f"Payload: {json.dumps(payload, indent=2)}")
+            
+            response = self.session.post(
+                f"{API_BASE_URL}/task",
+                json=payload,
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("code") == 200:
+                    task_id = data["data"]["task_id"]
+                    logger.info(f"Task created successfully: {task_id}")
+                    return task_id
+                else:
+                    logger.error(f"API error: {data.get('message')}")
+                    return None
+            else:
+                logger.error(f"HTTP error {response.status_code}: {response.text}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error creating task for scene {scene['id']}: {str(e)}")
+            return None
+    
+    def get_task_status(self, task_id: str) -> Tuple[str, Optional[str]]:
+        """Check task status and get video URL if completed"""
+        try:
+            response = self.session.get(
+                f"{API_BASE_URL}/task/{task_id}",
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("code") == 200:
+                    task_data = data["data"]
+                    status = task_data["status"]
+                    
+                    if status == "completed":
+                        video_url = task_data.get("output", {}).get("works", [{}])[0].get("video", {}).get("resource")
+                        video_url_no_watermark = task_data.get("output", {}).get("works", [{}])[0].get("video", {}).get("resource_without_watermark")
+                        
+                        # Prefer no watermark version if available
+                        final_url = video_url_no_watermark or video_url
+                        return "completed", final_url
+                    elif status == "failed":
+                        error_msg = task_data.get("error", {}).get("message", "Unknown error")
+                        logger.error(f"Task {task_id} failed: {error_msg}")
+                        return "failed", None
+                    else:
+                        return status, None
+                else:
+                    logger.error(f"API error checking status: {data.get('message')}")
+                    return "error", None
+            else:
+                logger.error(f"HTTP error {response.status_code}: {response.text}")
+                return "error", None
+                
+        except Exception as e:
+            logger.error(f"Error checking task status: {str(e)}")
+            return "error", None
+    
+    def wait_for_completion(self, task_id: str, scene_name: str, max_wait: int = 600) -> Optional[str]:
+        """Wait for task completion with polling"""
+        start_time = time.time()
+        check_interval = 10  # Check every 10 seconds
+        
+        while True:
+            elapsed = time.time() - start_time
+            if elapsed > max_wait:
+                logger.error(f"Timeout waiting for scene '{scene_name}' (task: {task_id})")
+                return None
+            
+            status, video_url = self.get_task_status(task_id)
+            
+            if status == "completed" and video_url:
+                logger.info(f"✅ Scene '{scene_name}' completed! URL: {video_url}")
+                return video_url
+            elif status == "failed":
+                logger.error(f"❌ Scene '{scene_name}' failed!")
+                return None
+            elif status == "processing" or status == "pending":
+                logger.info(f"⏳ Scene '{scene_name}' is {status}... ({int(elapsed)}s elapsed)")
+                time.sleep(check_interval)
+            else:
+                logger.warning(f"Unknown status '{status}' for scene '{scene_name}'")
+                time.sleep(check_interval)
+    
+    def generate_scene_with_retry(self, scene: Dict, max_retries: int = 1) -> Dict:
+        """Generate a single scene with retry logic"""
+        for attempt in range(max_retries + 1):
+            if attempt > 0:
+                logger.info(f"Retry attempt {attempt} for scene {scene['id']}")
+                time.sleep(60)  # Wait 1 minute before retry
+            
+            # Create task
+            task_id = self.create_video_task(scene)
+            if not task_id:
+                if attempt < max_retries:
+                    continue
+                return {
+                    "scene_id": scene["id"],
+                    "scene_name": scene["name"],
+                    "status": "failed",
+                    "error": "Failed to create task"
+                }
+            
+            # Wait for completion
+            video_url = self.wait_for_completion(task_id, scene["name"])
+            if video_url:
+                return {
+                    "scene_id": scene["id"],
+                    "scene_name": scene["name"],
+                    "status": "completed",
+                    "video_url": video_url,
+                    "task_id": task_id
+                }
+            elif attempt < max_retries:
+                logger.info(f"Scene {scene['id']} failed, will retry...")
+                continue
+            else:
+                return {
+                    "scene_id": scene["id"],
+                    "scene_name": scene["name"],
+                    "status": "failed",
+                    "task_id": task_id,
+                    "error": "Video generation failed"
+                }
+    
+    def generate_all_scenes(self, scenes: List[Dict], parallel: bool = True) -> List[Dict]:
+        """Generate all scenes either in parallel or sequentially"""
+        results = []
+        
+        if parallel:
+            logger.info("Starting parallel video generation...")
+            with ThreadPoolExecutor(max_workers=5) as executor:
+                future_to_scene = {
+                    executor.submit(self.generate_scene_with_retry, scene): scene 
+                    for scene in scenes
+                }
+                
+                for future in as_completed(future_to_scene):
+                    scene = future_to_scene[future]
+                    try:
+                        result = future.result()
+                        results.append(result)
+                    except Exception as e:
+                        logger.error(f"Exception for scene {scene['id']}: {str(e)}")
+                        results.append({
+                            "scene_id": scene["id"],
+                            "scene_name": scene["name"],
+                            "status": "failed",
+                            "error": str(e)
+                        })
+        else:
+            logger.info("Starting sequential video generation...")
+            for scene in scenes:
+                result = self.generate_scene_with_retry(scene)
+                results.append(result)
+        
+        return results
+
+def main():
+    """Main execution function"""
+    if not API_KEY:
+        logger.error("PIAPI_API_KEY environment variable not set!")
+        return 1
+    
+    # Initialize generator
+    generator = KlingVideoGenerator(API_KEY)
+    
+    # Generate all scenes
+    logger.info(f"Starting biblical video generation for {len(SCENES)} scenes...")
+    logger.info("Using Kling 1.6 Professional Mode, 5s videos, 16:9 aspect ratio")
+    
+    start_time = time.time()
+    results = generator.generate_all_scenes(SCENES, parallel=True)
+    total_time = time.time() - start_time
+    
+    # Print results summary
+    logger.info("\n" + "="*50)
+    logger.info("GENERATION COMPLETE!")
+    logger.info("="*50)
+    
+    successful = [r for r in results if r["status"] == "completed"]
+    failed = [r for r in results if r["status"] == "failed"]
+    
+    logger.info(f"✅ Successful: {len(successful)}/{len(SCENES)} scenes")
+    logger.info(f"❌ Failed: {len(failed)}/{len(SCENES)} scenes")
+    logger.info(f"⏱️  Total time: {int(total_time)}s")
+    
+    # Save results to file
+    output_file = f"video_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    with open(output_file, 'w') as f:
+        json.dump({
+            "generation_date": datetime.now().isoformat(),
+            "total_scenes": len(SCENES),
+            "successful": len(successful),
+            "failed": len(failed),
+            "total_time_seconds": int(total_time),
+            "results": results
+        }, f, indent=2)
+    
+    logger.info(f"\n📄 Results saved to: {output_file}")
+    
+    # Print video URLs
+    if successful:
+        logger.info("\n🎬 Generated Videos:")
+        for result in successful:
+            logger.info(f"Scene {result['scene_id']} - {result['scene_name']}:")
+            logger.info(f"  URL: {result['video_url']}")
+    
+    # Print failed scenes
+    if failed:
+        logger.info("\n❌ Failed Scenes:")
+        for result in failed:
+            logger.info(f"Scene {result['scene_id']} - {result['scene_name']}: {result.get('error', 'Unknown error')}")
+        
+        # Ask if should retry failed scenes
+        logger.info("\n⚠️  Some scenes failed. You can run the workflow again to retry only the failed scenes.")
+    
+    # Set GitHub Actions output
+    if os.environ.get("GITHUB_ACTIONS"):
+        with open(os.environ["GITHUB_OUTPUT"], 'a') as f:
+            f.write(f"successful_count={len(successful)}\n")
+            f.write(f"failed_count={len(failed)}\n")
+            f.write(f"results_file={output_file}\n")
+    
+    return 0 if len(failed) == 0 else 1
+
+if __name__ == "__main__":
+    exit(main())
