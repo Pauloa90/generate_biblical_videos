@@ -1,0 +1,46 @@
+{
+  "api_settings": {
+    "model": "kling",
+    "version": "1.6",
+    "mode": "pro",
+    "duration": 5,
+    "aspect_ratio": "16:9",
+    "resolution": "1080p",
+    "style": "Pixar-style 3D animation",
+    "cfg_scale": 0.5
+  },
+  
+  "generation_settings": {
+    "parallel_generation": true,
+    "max_workers": 5,
+    "retry_attempts": 1,
+    "retry_delay_seconds": 60,
+    "task_timeout_seconds": 600,
+    "check_interval_seconds": 10
+  },
+  
+  "image_source": {
+    "type": "github",
+    "github_base_url": "https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_REPO/main/images/",
+    "google_drive_ids": {
+      "David": "YOUR_DAVID_FILE_ID",
+      "Saul": "YOUR_SAUL_FILE_ID", 
+      "Golias": "YOUR_GOLIAS_FILE_ID",
+      "bg1": "YOUR_BG1_FILE_ID",
+      "bg2": "YOUR_BG2_FILE_ID",
+      "bg3": "YOUR_BG3_FILE_ID",
+      "bg4": "YOUR_BG4_FILE_ID",
+      "bg5": "YOUR_BG5_FILE_ID"
+    }
+  },
+  
+  "output_settings": {
+    "save_results_json": true,
+    "create_summary": true,
+    "upload_to_artifacts": true,
+    "notifications": {
+      "enabled": false,
+      "webhook_url": ""
+    }
+  }
+}
