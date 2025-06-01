@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Results and logs
+video_results_*.json
+*.log
+results/
+output/
+
+# API Keys (never commit these!)
+.env
+.env.local
+api_key.txt
+credentials.json
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Test files
+test_output/
+temp/
+*.tmp
+
+# Video files (if you download them locally)
+*.mp4
+*.mov
+*.avi
+downloads/
